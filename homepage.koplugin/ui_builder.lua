@@ -106,9 +106,8 @@ function UIBuilder:buildInfoPanel(doc_info, info_width, cover_height, homepage_w
     local series = doc_info.props.series
     local series_index = doc_info.props.series_index
     local percent_finished = DocumentManager:getReadingProgress(doc_info.settings)
-    local page_count = DocumentManager:getPageCount(doc_info.settings)
     
-    -- Block 1: Title, series, author (top)
+    -- Block 1: Title, series, author
     local block1_widgets = {}
     
     table.insert(block1_widgets, TextWidget:new{
@@ -143,17 +142,8 @@ function UIBuilder:buildInfoPanel(doc_info, info_width, cover_height, homepage_w
         unpack(block1_widgets)
     }
     
-    -- Block 2: Page count and progress (center)
+    -- Block 2: Progress bar only
     local block2_widgets = {}
-    
-    if page_count then
-        table.insert(block2_widgets, TextWidget:new{
-            text = string.format(_("Pages: %d"), page_count),
-            face = Font:getFace("xx_smallinfofont", 18),
-            max_width = info_width,
-        })
-        table.insert(block2_widgets, VerticalSpan:new{ width = Size.span.vertical_default })
-    end
     
     table.insert(block2_widgets, TextWidget:new{
         text = string.format(_("Progress: %d%%"), percent_finished),
@@ -175,13 +165,12 @@ function UIBuilder:buildInfoPanel(doc_info, info_width, cover_height, homepage_w
         unpack(block2_widgets)
     }
     
-    -- Block 3: Rating and status (bottom) - compact widgets
+    -- Block 3: Rating and status
     local block3_widgets = {}
     
     local rating_widget = RatingStatusWidgets:generateRatingWidgetCompact(doc_info, info_width, homepage_widget)
     local status_widget = RatingStatusWidgets:generateStatusWidgetCompact(doc_info, info_width, homepage_widget)
     
-    -- Add padding below rating widget
     table.insert(block3_widgets, FrameContainer:new{
         padding = 0,
         padding_bottom = Size.padding.large,
@@ -197,19 +186,15 @@ function UIBuilder:buildInfoPanel(doc_info, info_width, cover_height, homepage_w
         unpack(block3_widgets)
     }
     
-    -- Calculate block heights
+    -- Calculate dynamic spacing
     local block1_height = block1:getSize().h
     local block2_height = block2:getSize().h
     local block3_height = block3:getSize().h
     
-    -- Dynamic spacing calculation
     local total_content_height = block1_height + block2_height + block3_height
     local available_space = cover_height - total_content_height
-    
-    -- Distribute remaining space between blocks
     local spacing_between_blocks = math.max(Size.span.vertical_large, available_space / 2)
     
-    -- Assemble with dynamic spacing
     local all_content = VerticalGroup:new{
         align = "left",
         block1,
@@ -233,18 +218,15 @@ function UIBuilder:buildSectionHeader(title, width)
     local medium_font_face = Font:getFace("ffont")
     local spacing = Size.padding.default
     
-    -- Header title widget
     local header_title = TextWidget:new{
         text = title,
         face = medium_font_face,
         fgcolor = Blitbuffer.COLOR_GRAY_9,
     }
     
-    -- Calculate line width to fill available space
     local title_width = header_title:getSize().w
     local line_width = (width - title_width - spacing * 2) / 2
     
-    -- Create line widgets
     local left_line = LineWidget:new{
         background = Blitbuffer.COLOR_LIGHT_GRAY,
         dimen = Geom:new{
@@ -261,7 +243,6 @@ function UIBuilder:buildSectionHeader(title, width)
         }
     }
     
-    -- Assemble header with title centered between lines
     local header = HorizontalGroup:new{
         align = "center",
         LeftContainer:new{
@@ -280,6 +261,58 @@ function UIBuilder:buildSectionHeader(title, width)
     return header
 end
 
+function UIBuilder:createStyledButton(text, width, callback, homepage_instance, button_type)
+    local button = Button:new{
+        text = text,
+        width = width,
+        callback = callback,
+        bordersize = Size.border.button,
+        padding = Size.padding.button,
+        padding_top = Size.padding.button * 1.5,
+        padding_bottom = Size.padding.button * 1.5,
+        margin = 0,
+        radius = Size.radius.button,
+        background = Blitbuffer.COLOR_WHITE,
+        text_font_face = "cfont",
+        text_font_size = 20,
+        text_font_bold = false,
+        show_parent = homepage_instance,
+        enabled = true,
+    }
+    
+    -- Override feedback highlight to preserve radius
+    button._doFeedbackHighlight = function(self)
+        if self.text then
+            self[1].background = self[1].background:invert()
+            self.label_widget.fgcolor = self.label_widget.fgcolor:invert()
+            UIManager:widgetRepaint(self[1], self[1].dimen.x, self[1].dimen.y)
+        else
+            self[1].invert = true
+            UIManager:widgetInvert(self[1], self[1].dimen.x, self[1].dimen.y)
+        end
+        UIManager:setDirty(nil, "fast", self[1].dimen)
+    end
+    
+    button._undoFeedbackHighlight = function(self, is_translucent)
+        if self.text then
+            self[1].background = self[1].background:invert()
+            self.label_widget.fgcolor = self.label_widget.fgcolor:invert()
+            UIManager:widgetRepaint(self[1], self[1].dimen.x, self[1].dimen.y)
+        else
+            self[1].invert = false
+            UIManager:widgetInvert(self[1], self[1].dimen.x, self[1].dimen.y)
+        end
+        
+        if is_translucent then
+            UIManager:setDirty(self.show_parent, "ui", self[1].dimen)
+        else
+            UIManager:setDirty(nil, self.enabled and "fast" or "ui", self[1].dimen)
+        end
+    end
+    
+    return button
+end
+
 function UIBuilder:buildButtons(homepage_instance, doc_info, button_width, edge_padding)
     local function getWifiButtonText()
         local NetworkMgr = require("ui/network/manager")
@@ -287,114 +320,108 @@ function UIBuilder:buildButtons(homepage_instance, doc_info, button_width, edge_
         return NetworkMgr:isWifiOn() and _("Wi-Fi: On") or _("Wi-Fi: Off")
     end
     
-    -- First row
-    local frontlight_button = Button:new{
-        text = _("Frontlight"),
-        width = button_width,
-        callback = function()
-            ButtonActions:showFrontlight(homepage_instance.ui)
+    local frontlight_button = self:createStyledButton(
+        _("Frontlight"),
+        button_width,
+        function()
+            local FrontLightWidget = require("ui/widget/frontlightwidget")
+            local widget = FrontLightWidget:new{
+                device_module = require("device"),
+            }
+            UIManager:show(widget)
         end,
-        bordersize = Size.border.button,
-        padding = Size.padding.button,
-        show_parent = homepage_instance,
-    }
+        homepage_instance,
+        "primary"
+    )
     
-	local history_button = Button:new{
-		text = _("History"),
-		width = button_width,
-		callback = function()
-			ButtonActions:showHistory(homepage_instance.ui, homepage_instance.homepage_widget)
-		end,
-		bordersize = Size.border.button,
-		padding = Size.padding.button,
-		show_parent = homepage_instance,
-	}
+    local wifi_button
+    wifi_button = self:createStyledButton(
+        getWifiButtonText(),
+        button_width,
+        function()
+            ButtonActions:toggleWifi(function()
+                wifi_button:setText(getWifiButtonText(), button_width)
+                UIManager:setDirty(homepage_instance.homepage_widget, "ui")
+            end)
+        end,
+        homepage_instance,
+        "primary"
+    )
     
-    local files_button = Button:new{
-        text = _("Files"),
-        width = button_width,
-        callback = function()
+    local files_button = self:createStyledButton(
+        _("Files"),
+        button_width,
+        function()
             ButtonActions:showFiles(homepage_instance.ui, homepage_instance.homepage_widget)
         end,
-        bordersize = Size.border.button,
-        padding = Size.padding.button,
-        show_parent = homepage_instance,
-    }
+        homepage_instance,
+        "primary"
+    )
     
-    local calibre_button = Button:new{
-        text = _("calibre"),
-        width = button_width,
-        callback = function()
+    local calibre_button = self:createStyledButton(
+        _("calibre"),
+        button_width,
+        function()
             ButtonActions:toggleCalibre()
         end,
-        bordersize = Size.border.button,
-        padding = Size.padding.button,
-        show_parent = homepage_instance,
-    }
+        homepage_instance,
+        "primary"
+    )
     
 	local first_row = HorizontalGroup:new{
 		align = "center",
 		frontlight_button,
 		HorizontalSpan:new{ width = edge_padding },
-		history_button,
+		wifi_button,
 		HorizontalSpan:new{ width = edge_padding },
 		files_button,
 		HorizontalSpan:new{ width = edge_padding },
 		calibre_button,
 	}
     
-    -- Second row
-    local wifi_button
-    wifi_button = Button:new{
-        text = getWifiButtonText(),
-        width = button_width,
-        callback = function()
-            ButtonActions:toggleWifi(function()
-                wifi_button:setText(getWifiButtonText(), button_width)
-                UIManager:setDirty(homepage_instance.homepage_widget, "ui")
-            end)
+    local history_button = self:createStyledButton(
+        _("History"),
+        button_width,
+        function()
+            ButtonActions:showHistory(homepage_instance.ui, homepage_instance.homepage_widget)
         end,
-        bordersize = Size.border.button,
-        padding = Size.padding.button,
-        show_parent = homepage_instance,
-    }
+        homepage_instance,
+        "action"
+    )
     
-    local favorites_button = Button:new{
-        text = _("Favorites"),
-        width = button_width,
-        callback = function()
+    local favorites_button = self:createStyledButton(
+        _("Favorites"),
+        button_width,
+        function()
             ButtonActions:showFavorites(homepage_instance.ui, homepage_instance.homepage_widget)
         end,
-        bordersize = Size.border.button,
-        padding = Size.padding.button,
-        show_parent = homepage_instance,
-    }
+        homepage_instance,
+        "action"
+    )
     
-    local collections_button = Button:new{
-        text = _("Collections"),
-        width = button_width,
-        callback = function()
+    local collections_button = self:createStyledButton(
+        _("Collections"),
+        button_width,
+        function()
             ButtonActions:showCollections(homepage_instance.ui, homepage_instance.homepage_widget)
         end,
-        bordersize = Size.border.button,
-        padding = Size.padding.button,
-        show_parent = homepage_instance,
-    }
+        homepage_instance,
+        "action"
+    )
     
-    local exit_button = Button:new{
-        text = _("Exit"),
-        width = button_width,
-        callback = function()
+    local exit_button = self:createStyledButton(
+        _("Exit"),
+        button_width,
+        function()
             ButtonActions:exitApp(homepage_instance.homepage_widget)
         end,
-        bordersize = Size.border.button,
-        padding = Size.padding.button,
-        show_parent = homepage_instance,
-    }
+        homepage_instance,
+        "danger"
+    )
     
     local second_row = HorizontalGroup:new{
         align = "center",
-        wifi_button,
+        history_button,
         HorizontalSpan:new{ width = edge_padding },
         favorites_button,
         HorizontalSpan:new{ width = edge_padding },
@@ -407,7 +434,6 @@ function UIBuilder:buildButtons(homepage_instance, doc_info, button_width, edge_
 end
 
 function UIBuilder:buildTitleBar(homepage_widget, screen_width)
-    -- Create TitleBar matching FileManager style
     local title_bar = TitleBar:new{
         width = screen_width,
         fullscreen = true,
@@ -430,21 +456,15 @@ function UIBuilder:buildHomePage(homepage_instance, doc_info)
     local screen_height = Screen:getHeight()
     local edge_padding = Size.padding.large * 2
     
-    -- Cover dimensions
     local cover_width = math.floor(screen_width * 0.4)
     local cover_height = math.floor(cover_width * 1.5)
-    
-    -- Info panel width
     local info_width = screen_width - cover_width - edge_padding * 3
     
-    -- Build widgets
     local cover_container = self:buildCoverWidget(doc_info, cover_width, cover_height, homepage_instance)
     
-    -- Create temporary widget reference for info panel
     local temp_widget = {}
     local info_container = self:buildInfoPanel(doc_info, info_width, cover_height, temp_widget)
     
-    -- Main content layout
     local main_content = HorizontalGroup:new{
         align = "top",
         FrameContainer:new{
@@ -457,10 +477,8 @@ function UIBuilder:buildHomePage(homepage_instance, doc_info)
         info_container,
     }
     
-    -- Statistics section with safe data retrieval
     local statistics_width = screen_width - edge_padding * 2
     
-    -- Get total pages - try multiple sources
     local total_pages = DocumentManager:getPageCount(doc_info.settings)
     if not total_pages and doc_info.settings then
         local doc_stats = doc_info.settings:readSetting("stats")
@@ -470,11 +488,9 @@ function UIBuilder:buildHomePage(homepage_instance, doc_info)
     end
     total_pages = total_pages or 0
     
-    -- Build statistics header and widget
     local statistics_header = self:buildSectionHeader(_("Statistics"), statistics_width)
     local statistics_widget = ReadingStatistics:buildStatisticsWidget(doc_info, statistics_width, total_pages)
     
-    -- Separator line (same width as statistics_width)
     local separator = LineWidget:new{
         dimen = Geom:new{
             w = statistics_width,
@@ -484,7 +500,6 @@ function UIBuilder:buildHomePage(homepage_instance, doc_info)
         style = "solid",
     }
     
-    -- Buttons
     local button_width = math.floor((screen_width - edge_padding * 5) / 4)
     local first_row, second_row = self:buildButtons(homepage_instance, doc_info, button_width, edge_padding)
     
@@ -502,7 +517,6 @@ function UIBuilder:buildHomePage(homepage_instance, doc_info)
         second_row,
     }
     
-    -- ИЗМЕНЕНИЕ: Создаем homepage_widget как InputContainer вместо FrameContainer
     local homepage_widget = InputContainer:new{
         dimen = Geom:new{
             x = 0,
@@ -512,7 +526,6 @@ function UIBuilder:buildHomePage(homepage_instance, doc_info)
         },
     }
     
-    -- ДОБАВЛЕНИЕ: Регистрируем зону касания для свайпа
     homepage_widget:registerTouchZones({
         {
             id = "homepage_swipe_menu",
@@ -521,12 +534,10 @@ function UIBuilder:buildHomePage(homepage_instance, doc_info)
                 ratio_x = 0,
                 ratio_y = 0,
                 ratio_w = 1,
-                ratio_h = 0.1,  -- Верхние 10% экрана
+                ratio_h = 0.1,
             },
             handler = function(ges)
-                -- Проверяем направление свайпа
                 if ges.direction == "south" then
-                    -- Вызов меню файлового менеджера
                     if homepage_instance.ui and homepage_instance.ui.menu then
                         homepage_instance.ui.menu:onShowMenu()
                         return true
@@ -537,11 +548,9 @@ function UIBuilder:buildHomePage(homepage_instance, doc_info)
         },
     })
     
-    -- Create TitleBar (takes full screen width, no padding)
     local title_bar = self:buildTitleBar(homepage_widget, screen_width)
     local title_bar_height = title_bar:getHeight()
     
-    -- Main body vertical layout (content below title bar with padding)
     local main_body = VerticalGroup:new{
         align = "left",
         VerticalSpan:new{ width = edge_padding },
@@ -558,7 +567,6 @@ function UIBuilder:buildHomePage(homepage_instance, doc_info)
         second_row_container,
     }
     
-    -- Body with horizontal padding
     local body_with_padding = FrameContainer:new{
         padding = edge_padding,
         padding_top = 0,
@@ -569,14 +577,12 @@ function UIBuilder:buildHomePage(homepage_instance, doc_info)
         main_body,
     }
     
-    -- Full content: TitleBar at top (full width) + padded body
     local full_content = VerticalGroup:new{
         align = "left",
         title_bar,
         body_with_padding,
     }
     
-    -- ИЗМЕНЕНИЕ: Оборачиваем контент в FrameContainer перед добавлением в InputContainer
     local main_frame = FrameContainer:new{
         background = Blitbuffer.COLOR_WHITE,
         bordersize = 0,
@@ -586,10 +592,7 @@ function UIBuilder:buildHomePage(homepage_instance, doc_info)
         full_content,
     }
     
-    -- Update homepage_widget with final content
     homepage_widget[1] = main_frame
-    
-    -- Update temp widget reference
     temp_widget = homepage_widget
     
     function homepage_widget:onClose()
