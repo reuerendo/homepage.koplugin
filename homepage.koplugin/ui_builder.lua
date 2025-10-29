@@ -437,7 +437,7 @@ function UIBuilder:buildTitleBar(homepage_widget, screen_width)
     local title_bar = TitleBar:new{
         width = screen_width,
         fullscreen = true,
-        title = _("Homepage"),
+        title = _("Home Page"),
         title_top_padding = Screen:scaleBySize(6),
         button_padding = Screen:scaleBySize(3),
         right_icon = "exit",

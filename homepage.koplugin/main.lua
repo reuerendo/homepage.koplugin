@@ -133,6 +133,15 @@ function HomePage:addToMainMenu(menu_items)
 end
 
 function HomePage:onShowHomePage()
+    -- Flush settings to ensure current reading progress is saved
+    if self.ui.document then
+        self.ui:onFlushSettings()
+        
+        -- Broadcast event to all plugins
+        local Event = require("ui/event")
+        UIManager:broadcastEvent(Event:new("FlushSettings"))
+    end
+    
     local current_file = self.ui.document and self.ui.document.file
     self:show(current_file)
     return true
