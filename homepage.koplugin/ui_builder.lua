@@ -118,18 +118,18 @@ function UIBuilder:buildInfoPanel(doc_info, info_width, cover_height, homepage_w
     })
     table.insert(block1_widgets, VerticalSpan:new{ width = Size.span.vertical_default })
     
-	if series and series ~= "" then
-		local series_text = series
-		if series_index then
-			series_text = series_text .. " — " .. tostring(series_index)
-		end
-		table.insert(block1_widgets, TextWidget:new{
-			text = series_text,
-			face = Font:getFace("xx_smallinfofont", 18),
-			max_width = info_width,
-		})
-		table.insert(block1_widgets, VerticalSpan:new{ width = Size.span.vertical_default })
-	end
+    if series and series ~= "" then
+        local series_text = series
+        if series_index then
+            series_text = series_text .. " — " .. tostring(series_index)
+        end
+        table.insert(block1_widgets, TextWidget:new{
+            text = series_text,
+            face = Font:getFace("xx_smallinfofont", 18),
+            max_width = info_width,
+        })
+        table.insert(block1_widgets, VerticalSpan:new{ width = Size.span.vertical_default })
+    end
     
     table.insert(block1_widgets, TextWidget:new{
         text = authors,
@@ -368,16 +368,16 @@ function UIBuilder:buildButtons(homepage_instance, doc_info, button_width, edge_
         "primary"
     )
     
-	local first_row = HorizontalGroup:new{
-		align = "center",
-		frontlight_button,
-		HorizontalSpan:new{ width = edge_padding },
-		wifi_button,
-		HorizontalSpan:new{ width = edge_padding },
-		files_button,
-		HorizontalSpan:new{ width = edge_padding },
-		calibre_button,
-	}
+    local first_row = HorizontalGroup:new{
+        align = "center",
+        frontlight_button,
+        HorizontalSpan:new{ width = edge_padding },
+        wifi_button,
+        HorizontalSpan:new{ width = edge_padding },
+        files_button,
+        HorizontalSpan:new{ width = edge_padding },
+        calibre_button,
+    }
     
     local history_button = self:createStyledButton(
         _("History"),
@@ -460,10 +460,22 @@ function UIBuilder:buildHomePage(homepage_instance, doc_info)
     local cover_height = math.floor(cover_width * 1.5)
     local info_width = screen_width - cover_width - edge_padding * 3
     
-    local cover_container = self:buildCoverWidget(doc_info, cover_width, cover_height, homepage_instance)
+    -- Create the main homepage widget first
+    local homepage_widget = InputContainer:new{
+        dimen = Geom:new{
+            x = 0,
+            y = 0,
+            w = screen_width,
+            h = screen_height,
+        },
+    }
     
-    local temp_widget = {}
-    local info_container = self:buildInfoPanel(doc_info, info_width, cover_height, temp_widget)
+    -- Store reference in homepage_instance for callbacks
+    homepage_instance.homepage_widget = homepage_widget
+    
+    -- Now build components with correct widget reference
+    local cover_container = self:buildCoverWidget(doc_info, cover_width, cover_height, homepage_instance)
+    local info_container = self:buildInfoPanel(doc_info, info_width, cover_height, homepage_widget)
     
     local main_content = HorizontalGroup:new{
         align = "top",
@@ -515,15 +527,6 @@ function UIBuilder:buildHomePage(homepage_instance, doc_info)
             w = screen_width - edge_padding * 2,
         },
         second_row,
-    }
-    
-    local homepage_widget = InputContainer:new{
-        dimen = Geom:new{
-            x = 0,
-            y = 0,
-            w = screen_width,
-            h = screen_height,
-        },
     }
     
     homepage_widget:registerTouchZones({
@@ -593,7 +596,6 @@ function UIBuilder:buildHomePage(homepage_instance, doc_info)
     }
     
     homepage_widget[1] = main_frame
-    temp_widget = homepage_widget
     
     function homepage_widget:onClose()
         UIManager:setDirty(self, function()
