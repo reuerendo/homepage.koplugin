@@ -348,6 +348,17 @@ function UIBuilder:buildButtons(homepage_instance, doc_info, button_width, edge_
         "primary"
     )
     
+    -- Add network state change handler
+    function homepage_instance.homepage_widget:onNetworkConnected()
+        wifi_button:setText(getWifiButtonText(), button_width)
+        UIManager:setDirty(self, "ui")
+    end
+    
+    function homepage_instance.homepage_widget:onNetworkDisconnected()
+        wifi_button:setText(getWifiButtonText(), button_width)
+        UIManager:setDirty(self, "ui")
+    end
+    
     local files_button = self:createStyledButton(
         _("Files"),
         button_width,
