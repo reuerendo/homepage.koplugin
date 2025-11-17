@@ -23,7 +23,6 @@ local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 local _ = require("gettext")
-local InputContainer = require("ui/widget/container/inputcontainer")
 
 local DocumentManager = require("document_manager")
 local RatingStatusWidgets = require("rating_status_widgets")
@@ -32,7 +31,28 @@ local ReadingStatistics = require("reading_statistics")
 
 local Screen = Device.screen
 
-local UIBuilder = {}
+local UIBuilder = {
+    -- Cache for computed sizes
+    size_cache = {},
+    -- Cache for font faces
+    font_cache = {},
+}
+
+function UIBuilder:getFontFace(name, size)
+    local cache_key = name .. "_" .. (size or "default")
+    if not self.font_cache[cache_key] then
+        self.font_cache[cache_key] = Font:getFace(name, size)
+    end
+    return self.font_cache[cache_key]
+end
+
+function UIBuilder:getScreenDimensions()
+    if not self.size_cache.screen_width then
+        self.size_cache.screen_width = Screen:getWidth()
+        self.size_cache.screen_height = Screen:getHeight()
+    end
+    return self.size_cache.screen_width, self.size_cache.screen_height
+end
 
 function UIBuilder:buildCoverWidget(doc_info, cover_width, cover_height, homepage_instance)
     local cover_image = DocumentManager:getCoverImage(doc_info)
@@ -69,7 +89,7 @@ function UIBuilder:buildCoverWidget(doc_info, cover_width, cover_height, homepag
                 },
                 TextWidget:new{
                     text = _("No Cover"),
-                    face = Font:getFace("cfont", 22),
+                    face = self:getFontFace("cfont", 22),
                 }
             }
         }
@@ -107,12 +127,18 @@ function UIBuilder:buildInfoPanel(doc_info, info_width, cover_height, homepage_w
     local series_index = doc_info.props.series_index
     local percent_finished = DocumentManager:getReadingProgress(doc_info.settings)
     
+    -- Cache font faces
+    local title_font = self:getFontFace("infofont", 24)
+    local series_font = self:getFontFace("xx_smallinfofont", 18)
+    local author_font = self:getFontFace("x_smallinfofont", 20)
+    local progress_font = self:getFontFace("xx_smallinfofont", 18)
+    
     -- Block 1: Title, series, author
     local block1_widgets = {}
     
     table.insert(block1_widgets, TextWidget:new{
         text = title,
-        face = Font:getFace("infofont", 24),
+        face = title_font,
         bold = true,
         max_width = info_width,
     })
@@ -125,7 +151,7 @@ function UIBuilder:buildInfoPanel(doc_info, info_width, cover_height, homepage_w
         end
         table.insert(block1_widgets, TextWidget:new{
             text = series_text,
-            face = Font:getFace("xx_smallinfofont", 18),
+            face = series_font,
             max_width = info_width,
         })
         table.insert(block1_widgets, VerticalSpan:new{ width = Size.span.vertical_default })
@@ -133,7 +159,7 @@ function UIBuilder:buildInfoPanel(doc_info, info_width, cover_height, homepage_w
     
     table.insert(block1_widgets, TextWidget:new{
         text = authors,
-        face = Font:getFace("x_smallinfofont", 20),
+        face = author_font,
         max_width = info_width,
     })
     
@@ -147,7 +173,7 @@ function UIBuilder:buildInfoPanel(doc_info, info_width, cover_height, homepage_w
     
     table.insert(block2_widgets, TextWidget:new{
         text = string.format(_("Progress: %d%%"), percent_finished),
-        face = Font:getFace("xx_smallinfofont", 18),
+        face = progress_font,
         max_width = info_width,
     })
     table.insert(block2_widgets, VerticalSpan:new{ width = Size.span.vertical_default })
@@ -166,27 +192,23 @@ function UIBuilder:buildInfoPanel(doc_info, info_width, cover_height, homepage_w
     }
     
     -- Block 3: Rating and status
-    local block3_widgets = {}
-    
     local rating_widget = RatingStatusWidgets:generateRatingWidgetCompact(doc_info, info_width, homepage_widget)
     local status_widget = RatingStatusWidgets:generateStatusWidgetCompact(doc_info, info_width, homepage_widget)
     
-    table.insert(block3_widgets, FrameContainer:new{
-        padding = 0,
-        padding_bottom = Size.padding.large,
-        margin = 0,
-        bordersize = 0,
-        rating_widget,
-    })
-    table.insert(block3_widgets, VerticalSpan:new{ width = Size.span.vertical_default })
-    table.insert(block3_widgets, status_widget)
-    
     local block3 = VerticalGroup:new{
         align = "left",
-        unpack(block3_widgets)
+        FrameContainer:new{
+            padding = 0,
+            padding_bottom = Size.padding.large,
+            margin = 0,
+            bordersize = 0,
+            rating_widget,
+        },
+        VerticalSpan:new{ width = Size.span.vertical_default },
+        status_widget,
     }
     
-    -- Calculate dynamic spacing
+    -- Calculate dynamic spacing with cached sizes
     local block1_height = block1:getSize().h
     local block2_height = block2:getSize().h
     local block3_height = block3:getSize().h
@@ -215,7 +237,7 @@ function UIBuilder:buildInfoPanel(doc_info, info_width, cover_height, homepage_w
 end
 
 function UIBuilder:buildSectionHeader(title, width)
-    local medium_font_face = Font:getFace("ffont")
+    local medium_font_face = self:getFontFace("ffont")
     local spacing = Size.padding.default
     
     local header_title = TextWidget:new{
@@ -243,7 +265,7 @@ function UIBuilder:buildSectionHeader(title, width)
         }
     }
     
-    local header = HorizontalGroup:new{
+    return HorizontalGroup:new{
         align = "center",
         LeftContainer:new{
             dimen = Geom:new{ w = line_width, h = Size.item.height_default },
@@ -257,8 +279,6 @@ function UIBuilder:buildSectionHeader(title, width)
             right_line,
         },
     }
-    
-    return header
 end
 
 function UIBuilder:createStyledButton(text, width, callback, homepage_instance, button_type)
@@ -348,7 +368,7 @@ function UIBuilder:buildButtons(homepage_instance, doc_info, button_width, edge_
         "primary"
     )
     
-    -- Add network state change handler
+    -- Network state change handler
     function homepage_instance.homepage_widget:onNetworkConnected()
         wifi_button:setText(getWifiButtonText(), button_width)
         UIManager:setDirty(self, "ui")
@@ -445,7 +465,7 @@ function UIBuilder:buildButtons(homepage_instance, doc_info, button_width, edge_
 end
 
 function UIBuilder:buildTitleBar(homepage_widget, screen_width)
-    local title_bar = TitleBar:new{
+    return TitleBar:new{
         width = screen_width,
         fullscreen = true,
         title = _("Home Page"),
@@ -458,13 +478,10 @@ function UIBuilder:buildTitleBar(homepage_widget, screen_width)
         end,
         show_parent = homepage_widget,
     }
-    
-    return title_bar
 end
 
 function UIBuilder:buildHomePage(homepage_instance, doc_info)
-    local screen_width = Screen:getWidth()
-    local screen_height = Screen:getHeight()
+    local screen_width, screen_height = self:getScreenDimensions()
     local edge_padding = Size.padding.large * 2
     
     local cover_width = math.floor(screen_width * 0.4)
@@ -481,10 +498,10 @@ function UIBuilder:buildHomePage(homepage_instance, doc_info)
         },
     }
     
-    -- Store reference in homepage_instance for callbacks
+    -- Store reference in homepage_instance
     homepage_instance.homepage_widget = homepage_widget
     
-    -- Now build components with correct widget reference
+    -- Build components
     local cover_container = self:buildCoverWidget(doc_info, cover_width, cover_height, homepage_instance)
     local info_container = self:buildInfoPanel(doc_info, info_width, cover_height, homepage_widget)
     
@@ -500,6 +517,7 @@ function UIBuilder:buildHomePage(homepage_instance, doc_info)
         info_container,
     }
     
+    -- Statistics section
     local statistics_width = screen_width - edge_padding * 2
     
     local total_pages = DocumentManager:getPageCount(doc_info.settings)
@@ -523,6 +541,7 @@ function UIBuilder:buildHomePage(homepage_instance, doc_info)
         style = "solid",
     }
     
+    -- Buttons
     local button_width = math.floor((screen_width - edge_padding * 5) / 4)
     local first_row, second_row = self:buildButtons(homepage_instance, doc_info, button_width, edge_padding)
     
@@ -540,6 +559,7 @@ function UIBuilder:buildHomePage(homepage_instance, doc_info)
         second_row,
     }
     
+    -- Register swipe gesture
     homepage_widget:registerTouchZones({
         {
             id = "homepage_swipe_menu",
@@ -563,19 +583,46 @@ function UIBuilder:buildHomePage(homepage_instance, doc_info)
     })
     
     local title_bar = self:buildTitleBar(homepage_widget, screen_width)
-    local title_bar_height = title_bar:getHeight()
     
+-- Calculate dynamic vertical spacing
+    -- Calculate fixed heights
+    local title_bar_height = title_bar:getSize().h
+    local main_content_height = main_content:getSize().h
+    local statistics_header_height = statistics_header:getSize().h
+    local statistics_widget_height = statistics_widget:getSize().h
+    local separator_height = separator:getSize().h
+    local first_row_height = first_row:getSize().h
+    local second_row_height = second_row:getSize().h
+    
+    local fixed_small_spans = Size.padding.default * 3 + edge_padding * 2 -- small spans that don't change
+    
+    local total_fixed_height = title_bar_height + 
+                              edge_padding + -- top span
+                              main_content_height + 
+                              statistics_header_height + 
+                              statistics_widget_height + 
+                              separator_height + 
+                              first_row_height + 
+                              second_row_height + 
+                              fixed_small_spans +
+                              edge_padding -- bottom padding (same as side padding)
+    
+    -- Calculate remaining space for two dynamic spans
+    local remaining_space = screen_height - total_fixed_height
+    local dynamic_span = math.max(edge_padding * 2, remaining_space / 2)
+    
+    -- Assemble main body
     local main_body = VerticalGroup:new{
         align = "left",
         VerticalSpan:new{ width = edge_padding },
         main_content,
-        VerticalSpan:new{ width = edge_padding * 2 },
+        VerticalSpan:new{ width = dynamic_span },
         statistics_header,
         VerticalSpan:new{ width = Size.padding.default * 3 },
         statistics_widget,
         VerticalSpan:new{ width = edge_padding * 2 },
         separator,
-        VerticalSpan:new{ width = edge_padding * 3 },
+        VerticalSpan:new{ width = dynamic_span },
         first_row_container,
         VerticalSpan:new{ width = edge_padding * 3 },
         second_row_container,
