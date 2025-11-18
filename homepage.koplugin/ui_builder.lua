@@ -22,6 +22,7 @@ local TitleBar = require("ui/widget/titlebar")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
+local logger = require("logger")
 local _ = require("gettext")
 
 local DocumentManager = require("document_manager")
@@ -52,6 +53,31 @@ function UIBuilder:getScreenDimensions()
         self.size_cache.screen_height = Screen:getHeight()
     end
     return self.size_cache.screen_width, self.size_cache.screen_height
+end
+
+function UIBuilder:extractGoodreadsId(identifiers)
+    if not identifiers or identifiers == "" then
+        return nil
+    end
+    
+    -- Parse identifiers string to find GOODREADS id
+    for identifier in string.gmatch(identifiers, "[^\n]+") do
+        local goodreads_id = identifier:match("^GOODREADS:(%d+)$")
+        if goodreads_id then
+            logger.dbg("[HomePage] Found Goodreads ID:", goodreads_id)
+            return goodreads_id
+        end
+    end
+    
+    logger.dbg("[HomePage] No Goodreads ID found in identifiers")
+    return nil
+end
+
+function UIBuilder:openGoodreadsPage(goodreads_id)
+    local url = "https://www.goodreads.com/book/show/" .. goodreads_id
+    logger.info("[HomePage] Opening Goodreads URL:", url)
+    
+    Device:openLink(url)
 end
 
 function UIBuilder:buildCoverWidget(doc_info, cover_width, cover_height, homepage_instance)
@@ -126,6 +152,10 @@ function UIBuilder:buildInfoPanel(doc_info, info_width, cover_height, homepage_w
     local series = doc_info.props.series
     local series_index = doc_info.props.series_index
     local percent_finished = DocumentManager:getReadingProgress(doc_info.settings)
+    local identifiers = doc_info.props.identifiers
+    
+    -- Check for Goodreads ID
+    local goodreads_id = self:extractGoodreadsId(identifiers)
     
     -- Cache font faces
     local title_font = self:getFontFace("infofont", 24)
@@ -133,7 +163,7 @@ function UIBuilder:buildInfoPanel(doc_info, info_width, cover_height, homepage_w
     local author_font = self:getFontFace("x_smallinfofont", 20)
     local progress_font = self:getFontFace("xx_smallinfofont", 18)
     
-    -- Block 1: Title, series, author
+    -- Block 1: Title, series, author, Goodreads button
     local block1_widgets = {}
     
     table.insert(block1_widgets, TextWidget:new{
@@ -162,6 +192,63 @@ function UIBuilder:buildInfoPanel(doc_info, info_width, cover_height, homepage_w
         face = author_font,
         max_width = info_width,
     })
+    
+    -- Add Goodreads button if ID exists
+    if goodreads_id then
+        table.insert(block1_widgets, VerticalSpan:new{ width = Size.span.vertical_default * 5 })
+        
+        local goodreads_button = Button:new{
+            text = _("Goodreads"),
+            width = math.floor(info_width * 0.30),
+            callback = function()
+                self:openGoodreadsPage(goodreads_id)
+            end,
+            bordersize = Size.border.button,
+            padding = Size.padding.button * 0.7,
+            padding_top = Size.padding.button * 0.6,
+            padding_bottom = Size.padding.button * 0.6,
+            margin = 0,
+            radius = Size.radius.button,
+            background = Blitbuffer.COLOR_WHITE,
+            text_font_face = "cfont",
+            text_font_size = 12,
+            text_font_bold = false,
+            show_parent = homepage_widget,
+            enabled = true,
+        }
+        
+        -- Apply same feedback highlight behavior as other buttons
+        goodreads_button._doFeedbackHighlight = function(btn)
+            if btn.text then
+                btn[1].background = btn[1].background:invert()
+                btn.label_widget.fgcolor = btn.label_widget.fgcolor:invert()
+                UIManager:widgetRepaint(btn[1], btn[1].dimen.x, btn[1].dimen.y)
+            else
+                btn[1].invert = true
+                UIManager:widgetInvert(btn[1], btn[1].dimen.x, btn[1].dimen.y)
+            end
+            UIManager:setDirty(nil, "fast", btn[1].dimen)
+        end
+        
+        goodreads_button._undoFeedbackHighlight = function(btn, is_translucent)
+            if btn.text then
+                btn[1].background = btn[1].background:invert()
+                btn.label_widget.fgcolor = btn.label_widget.fgcolor:invert()
+                UIManager:widgetRepaint(btn[1], btn[1].dimen.x, btn[1].dimen.y)
+            else
+                btn[1].invert = false
+                UIManager:widgetInvert(btn[1], btn[1].dimen.x, btn[1].dimen.y)
+            end
+            
+            if is_translucent then
+                UIManager:setDirty(btn.show_parent, "ui", btn[1].dimen)
+            else
+                UIManager:setDirty(nil, btn.enabled and "fast" or "ui", btn[1].dimen)
+            end
+        end
+        
+        table.insert(block1_widgets, goodreads_button)
+    end
     
     local block1 = VerticalGroup:new{
         align = "left",
@@ -584,7 +671,7 @@ function UIBuilder:buildHomePage(homepage_instance, doc_info)
     
     local title_bar = self:buildTitleBar(homepage_widget, screen_width)
     
--- Calculate dynamic vertical spacing
+    -- Calculate dynamic vertical spacing
     -- Calculate fixed heights
     local title_bar_height = title_bar:getSize().h
     local main_content_height = main_content:getSize().h
